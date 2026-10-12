@@ -6097,7 +6097,20 @@ def get_model_info_helper(
                         e,
                     )
 
-        if custom_llm_provider == "huggingface":
+        lookup_order: Final = (
+            combined_model_name,
+            model,
+            potential_model_names["region_free_combined_model_name"],
+            split_model,
+            combined_stripped_model_name,
+            stripped_model_name,
+            provider_prefixed_model_name,
+        )
+        lookup: Final = _first_registered_match(lookup_order, model_cost_custom_llm_provider)
+
+        # A price registered for the model (a deployment's input_cost_per_query, keyed by its model id) wins over
+        # the fixed zero-cost Hugging Face description, or those calls are billed $0.
+        if custom_llm_provider == "huggingface" and lookup[0] is None:
             max_tokens: Final = _get_max_position_embeddings(model_name=model)
             return ModelInfoBase(
                 key=model,
@@ -6135,16 +6148,6 @@ def get_model_info_helper(
                and strip it. Tried last so no model that already resolves through 1-6 can change.
             """
 
-            lookup_order: Final = (
-                combined_model_name,
-                model,
-                potential_model_names["region_free_combined_model_name"],
-                split_model,
-                combined_stripped_model_name,
-                stripped_model_name,
-                provider_prefixed_model_name,
-            )
-            lookup: Final = _first_registered_match(lookup_order, model_cost_custom_llm_provider)
             key: str | None = lookup[0]
             _model_info: dict[str, Any] | None = lookup[1]
 

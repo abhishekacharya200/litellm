@@ -6375,6 +6375,35 @@ class TestHuggingFaceConfigFetch:
         request_timeout = hf_config_route.calls.last.request.extensions["timeout"]
         assert request_timeout["read"] == HF_CONFIG_FETCH_TIMEOUT_SECONDS
 
+def test_a_huggingface_deployment_keeps_the_price_registered_for_it(monkeypatch):
+    """The router registers a deployment's ``input_cost_per_query`` under its model id. The fixed
+    zero-cost Hugging Face description must not replace it, or TEI rerank calls cost $0 (#45975)."""
+    from litellm.cost_calculator import rerank_cost
+
+    monkeypatch.setattr(litellm, "model_cost", dict(litellm.model_cost))
+    _invalidate_model_cost_lowercase_map()
+    try:
+        litellm.register_model({"tei-rerank-deployment-id": {"input_cost_per_query": 0.001}})
+        assert rerank_cost(
+            model="tei-rerank-deployment-id",
+            custom_llm_provider="huggingface",
+            billed_units={"search_units": 1},
+        ) == (0.001, 0.0)
+    finally:
+        monkeypatch.undo()
+        _invalidate_model_cost_lowercase_map()
+
+
+@respx.mock
+def test_an_unregistered_huggingface_model_still_gets_the_zero_cost_description():
+    from litellm.utils import get_model_info
+
+    respx.get(url__regex=r"https://huggingface\.co/.*/config\.json").respond(json={"max_position_embeddings": 512})
+    model_info = get_model_info(model="some-org/unpriced-model", custom_llm_provider="huggingface")
+    assert model_info["input_cost_per_token"] == 0
+    assert model_info["max_tokens"] == 512
+
+
 
 @pytest.mark.asyncio
 async def test_success_deployment_hook_chains_past_callback_returning_response(
